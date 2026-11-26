@@ -30,6 +30,8 @@
   "devDependencies": {
     "@e2e-dev/core": "^0.24.0",
     "@e2e-dev/mobile": "^0.12.8",
+    "@expo/fingerprint": "~0.21.10",
+    "@expo/repack-app": "^0.10.4",
     "@types/react": "~19.3.0",
     "e2e": "^0.24.0",
     "eslint": "^9.0.0",
