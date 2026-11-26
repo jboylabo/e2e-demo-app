@@ -23,7 +23,7 @@ Expo で作ったアプリの E2E テストツールを探していたところ�
 | --- | --- |
 | Expo SDK | 58（Expo Router） |
 | Node.js | 26.5.0 |
-| pnpm | 11.13.0 |
+| pnpm | 12.23.0 |
 | Xcode | 27.2 |
 | e2e / @e2e-dev/mobile | 0.24.0 / 0.12.8 |
 

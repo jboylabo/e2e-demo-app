@@ -3,7 +3,7 @@
 このプロジェクトに [e2e](https://e2e.com/docs/ja/quickstart) を pnpm で導入し、iOS シミュレーターでテストを実行するまでの手順です。
 
 - 参考: [クイックスタート](https://e2e.com/docs/ja/quickstart) / [モバイルガイド](https://e2e.com/docs/ja/mobile) / [設定リファレンス](https://e2e.com/docs/ja/reference/config)
-- 動作確認環境: Node.js 26.5.0 / pnpm 11.13.0 / Xcode 27.2 / Expo SDK 58 / `e2e` 0.24.0 / `@e2e-dev/mobile` 0.12.8
+- 動作確認環境: Node.js 26.5.0 / pnpm 12.23.0 / Xcode 27.2 / Expo SDK 58 / `e2e` 0.24.0 / `@e2e-dev/mobile` 0.12.8
 
 ## 0. 前提条件
 
@@ -39,7 +39,7 @@ pnpm install
 
 > **失敗した場合の注意点**
 > `init` は `package.json` に依存関係を追記しますが、`node_modules` へのインストールまで完了していないことがあります（`node_modules/e2e` が存在しない状態）。その場合は上記の `pnpm install` を改めて実行してください。
-> このリポジトリは pnpm に統一済みです（`package-lock.json` は削除、`package.json` の `packageManager` で pnpm 11.13.0 を指定）。npm / yarn でインストールしないでください。
+> このリポジトリは pnpm に統一済みです（`package-lock.json` は削除、`package.json` の `packageManager` で pnpm 12.23.0 を指定）。npm / yarn でインストールしないでください。
 
 ### 1-3. インストール確認
 
