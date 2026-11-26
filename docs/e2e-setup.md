@@ -29,7 +29,7 @@ pnpm dlx e2e init
 - `tests/example.e2e.ts` … サンプルテスト（iOS の「設定」アプリを開く。現在は `tests/onboarding.e2e.ts` に置き換え済み）
 - `package.json` … devDependencies（`e2e` / `@e2e-dev/core` / `@e2e-dev/mobile`）と `test:e2e` スクリプト
 - `.gitignore` … `.e2e/` 配下の生成物
-- `.github/workflows/e2e.yml`、`.mcp.json`、`.claude/skills/e2e` など（選択した場合）
+- `.mcp.json`、`.claude/skills/e2e`、GitHub Actions のワークフローなど（選択した場合。このリポジトリでは CI ワークフローは削除し、e2e はローカルで実行）
 
 ### 1-2. 依存関係のインストール
 
@@ -68,11 +68,10 @@ pnpm exec e2e doctor
 **対処:** `e2e.config.ts` でシミュレーターを明示的に指定します（このリポジトリでは対応済み）。
 
 ```ts
-engine: mobile({ platform: 'ios', device: process.env.E2E_DEVICE ?? 'iPhone 17' }),
+engine: mobile({ platform: 'ios', device: 'iPhone 17' }),
 ```
 
 - 名前は `xcrun simctl list devices` に表示されるシミュレーター名を使います。
-- `E2E_DEVICE` は CI がシミュレーターの UDID を渡すための環境変数です。
 - 実機で動かしたい場合は、Xcode > Window > Devices and Simulators で端末の準備完了を待ち、Developer Mode を有効にしてください。
 
 ## 3. アプリをシミュレーターにインストールする
@@ -163,23 +162,9 @@ export default {
 
 モデルや認証は [モデル](https://e2e.com/docs/ja/models) / [サブスクリプション](https://e2e.com/docs/ja/subscriptions) を参照してください。
 
-## 6. CI（GitHub Actions）
+## 補足: ロックファイル
 
-`.github/workflows/e2e.yml` は PR と main への push で動き、macOS ランナーで次を行います（pnpm 対応済み）。
-
-1. `pnpm/action-setup` で `packageManager` の pnpm を入れ、`actions/setup-node`（`cache: pnpm`）→ `pnpm install --frozen-lockfile`
-2. `pnpm exec expo run:ios --configuration Release ...` で **Release ビルド**（JS 同梱）を作成
-3. iPhone 17 Pro シミュレーターを起動してアプリをインストールし、UDID を `E2E_DEVICE` に設定
-4. `pnpm exec e2e run --target ios --workers 1 --reporter list,junit`
-5. `.e2e/report.json`・`junit.xml`・`results/` をアーティファクトとしてアップロード
-
-ポイント:
-
-- CI では `CI=true` になるため、`e2e.config.ts` は Metro（`app.command`）を起動しません。Release ビルドは JS を内蔵しているので不要です。
-- `pnpm-lock.yaml` と `package.json` がずれていると `--frozen-lockfile` で失敗します。依存を変えたら必ず `pnpm install` してロックファイルもコミットしてください。
-- アクションはコミット SHA で固定しています。更新するときは SHA ごと差し替えてください。
-
-`.mcp.json` の e2e MCP サーバーも `pnpm exec e2e mcp` で起動します。
+`pnpm-lock.yaml` と `package.json` がずれないよう、依存を変えたら `pnpm install` してロックファイルもコミットしてください。`.mcp.json` の e2e MCP サーバーは `pnpm exec e2e mcp` で起動します。
 
 ## コマンド早見表
 

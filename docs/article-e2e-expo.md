@@ -113,7 +113,7 @@ pnpm test:e2e
 `device` を指定しないと、起動中のシミュレーターに加えて接続中の実機もテスト対象になります。シミュレーターを使いたいときは名前で指定しておくと安心です。
 
 ```ts
-engine: mobile({ platform: 'ios', device: process.env.E2E_DEVICE ?? 'iPhone 17' }),
+engine: mobile({ platform: 'ios', device: 'iPhone 17' }),
 ```
 
 **シミュレーターが日本語設定だとサンプルテストが落ちる**
@@ -172,22 +172,18 @@ export default {
   targets: [
     {
       name: 'ios',
-      engine: mobile({ platform: 'ios', device: process.env.E2E_DEVICE ?? 'iPhone 17' }),
+      engine: mobile({ platform: 'ios', device: 'iPhone 17' }),
       app: {
         bundleId: 'com.example.e2edemoapp', // app.json の ios.bundleIdentifier
-        // ローカルでは Metro を起動。CI は JS 同梱の Release ビルドを使うので不要
-        ...(process.env.CI
-          ? {}
-          : {
-              command: {
-                executable: 'pnpm',
-                args: ['exec', 'expo', 'start', '--port', '8081'],
-                reuseExisting: true,
-                startupTimeout: 120_000,
-                log: '.e2e/logs/metro.log',
-              },
-              readyUrl: 'http://localhost:8081/status',
-            }),
+        // テスト前に Metro を起動（すでに動いていればそれを使う）
+        command: {
+          executable: 'pnpm',
+          args: ['exec', 'expo', 'start', '--port', '8081'],
+          reuseExisting: true,
+          startupTimeout: 120_000,
+          log: '.e2e/logs/metro.log',
+        },
+        readyUrl: 'http://localhost:8081/status',
       },
     },
   ],
@@ -258,17 +254,6 @@ pnpm test:e2e
 
 シミュレーターの起動から 4 テスト完了まで約 19 秒でした。失敗したときは `.e2e/results/<テスト名>/trace.md` に、その時点の画面のアクセシビリティツリーなどが出力されるので、原因を追いやすいです。
 シミュレーターの画面を見ながら実行したいときは `pnpm exec e2e run --headed` を使います。
-
-## CI（GitHub Actions）
-
-`e2e init` で生成されるワークフローは、macOS ランナー上で次のように動きます。
-
-1. 依存関係をインストール（pnpm の場合は `pnpm/action-setup` + `pnpm install --frozen-lockfile`）
-2. `expo run:ios --configuration Release` で JS 同梱の Release ビルドを作成
-3. シミュレーターを起動してアプリをインストール
-4. `e2e run --reporter list,junit` でテストを実行し、レポートをアーティファクトとして保存
-
-生成されたワークフローは npm 前提だったので、pnpm プロジェクトでは `npm ci` / `npx` を `pnpm install --frozen-lockfile` / `pnpm exec` に置き換えて使っています。
 
 ## 使ってみて良かったところ
 
