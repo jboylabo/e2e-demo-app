@@ -51,3 +51,6 @@ example
 .e2e/summary.md
 .e2e/logs/
 .e2e/videos/
+
+# CI / local Release builds and repacked apps
+/build

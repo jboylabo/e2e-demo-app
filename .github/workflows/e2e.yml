@@ -1,0 +1,133 @@
+# Based on `e2e init --ci github-actions` (https://e2e.com/docs/ci/github-actions), with
+# Expo repack (https://docs.expo.dev/build-reference/repack/): when the native side is unchanged
+# (same fingerprint), the cached Release .app gets only a new JS bundle instead of a full native build.
+name: e2e
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  ios:
+    runs-on: macos-26
+    # A full Release build for the simulator can take 35 minutes on this runner; a repack takes a few.
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Installs the pnpm version pinned in package.json's packageManager field.
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Hash of everything native (dependencies, config plugins, app config). Computed before ios/ exists (CNG).
+      - name: Compute the native fingerprint
+        id: fingerprint
+        run: |
+          set -euo pipefail
+          HASH=$(pnpm exec fingerprint fingerprint:generate --platform ios | jq -r .hash)
+          echo "Native fingerprint: $HASH"
+          echo "hash=$HASH" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the base app for this fingerprint
+        id: base-app
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: build/base
+          key: ios-release-app-${{ steps.fingerprint.outputs.hash }}
+
+      # Native side changed (or first run): full build. Expo generates ios/ (CNG): expo run:ios prebuilds it,
+      # installs the pods, and builds without a simulator.
+      - name: Build the app (full native build)
+        if: steps.base-app.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          pnpm exec expo run:ios --configuration Release --device generic --no-bundler --output build/out
+          APP=$(find build/out -maxdepth 5 -name '*.app' -type d | head -n 1)
+          if [ -z "$APP" ]; then
+            echo "::error::No .app under build/out"
+            exit 1
+          fi
+          mkdir -p build/base build/ios
+          cp -R "$APP" build/base/app.app
+          cp -R "$APP" build/ios/app.app
+
+      # Saved right away, so a later test failure doesn't stop the next run from repacking.
+      - name: Save the base app
+        if: steps.base-app.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: build/base
+          key: ios-release-app-${{ steps.fingerprint.outputs.hash }}
+
+      # Native side unchanged: swap in a fresh JS bundle. A simulator .app needs no signing.
+      - name: Repack the app (JS bundle only)
+        if: steps.base-app.outputs.cache-hit == 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p build/ios
+          pnpm exec repack-app --platform ios --source-app build/base/app.app --output build/ios/app.app --js-bundle-only
+
+      # Restore and save separately: the plain cache action saves only when the job succeeds,
+      # so a failing run would never cache the runner and every run would stay cold.
+      - name: Restore the iOS automation runner
+        id: runner-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.agent-device/apple-runner/derived
+          key: agent-device-runner-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+      # Boots the image's own iPhone 17 Pro on a pinned runtime: a simulator made with `simctl create`
+      # can spend minutes on its first boot. Bump the runtime on purpose, after a local run on it,
+      # since the accessibility tree changes between iOS releases.
+      - name: Boot a simulator and install the app
+        env:
+          IOS_RUNTIME: com.apple.CoreSimulator.SimRuntime.iOS-26-5
+        run: |
+          set -euo pipefail
+          UDID=$(xcrun simctl list devices available -j | jq -r --arg rt "$IOS_RUNTIME" '.devices[$rt][]? | select(.name == "iPhone 17 Pro") | .udid' | head -n 1)
+          if [ -z "$UDID" ]; then
+            echo "::error::No iPhone 17 Pro on $IOS_RUNTIME"
+            xcrun simctl list runtimes
+            exit 1
+          fi
+          xcrun simctl boot "$UDID"
+          xcrun simctl bootstatus "$UDID"
+          xcrun simctl install "$UDID" build/ios/app.app
+          # A target with device: process.env.E2E_DEVICE drives this simulator, whatever else the image has.
+          echo "E2E_DEVICE=$UDID" >> "$GITHUB_ENV"
+
+      - name: Run e2e
+        run: pnpm exec e2e run --target ios --workers 1 --reporter list,junit
+
+      - name: Save the iOS automation runner
+        if: ${{ !cancelled() && steps.runner-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.agent-device/apple-runner/derived
+          key: agent-device-runner-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+      - name: Upload the report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-ios
+          path: |
+            .e2e/report.json
+            .e2e/junit.xml
+            .e2e/results
+          # .e2e is a hidden directory, which upload-artifact skips when it expands a folder.
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 7

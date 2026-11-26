@@ -29,7 +29,7 @@ pnpm dlx e2e init
 - `tests/example.e2e.ts` … サンプルテスト（iOS の「設定」アプリを開く。現在は `tests/onboarding.e2e.ts` に置き換え済み）
 - `package.json` … devDependencies（`e2e` / `@e2e-dev/core` / `@e2e-dev/mobile`）と `test:e2e` スクリプト
 - `.gitignore` … `.e2e/` 配下の生成物
-- `.mcp.json`、`.claude/skills/e2e`、GitHub Actions のワークフローなど（選択した場合。このリポジトリでは CI ワークフローは削除し、e2e はローカルで実行）
+- `.mcp.json`、`.claude/skills/e2e`、`.github/workflows/e2e.yml`（GitHub Actions）など（選択した場合）
 
 ### 1-2. 依存関係のインストール
 
@@ -68,10 +68,11 @@ pnpm exec e2e doctor
 **対処:** `e2e.config.ts` でシミュレーターを明示的に指定します（このリポジトリでは対応済み）。
 
 ```ts
-engine: mobile({ platform: 'ios', device: 'iPhone 17' }),
+engine: mobile({ platform: 'ios', device: process.env.E2E_DEVICE ?? 'iPhone 17' }),
 ```
 
 - 名前は `xcrun simctl list devices` に表示されるシミュレーター名を使います。
+- `E2E_DEVICE` は CI がシミュレーターの UDID を渡すための環境変数です。
 - 実機で動かしたい場合は、Xcode > Window > Devices and Simulators で端末の準備完了を待ち、Developer Mode を有効にしてください。
 
 ## 3. アプリをシミュレーターにインストールする
@@ -162,6 +163,38 @@ export default {
 
 モデルや認証は [モデル](https://e2e.com/docs/ja/models) / [サブスクリプション](https://e2e.com/docs/ja/subscriptions) を参照してください。
 
+## 6. CI（GitHub Actions）と repack によるビルド短縮
+
+`.github/workflows/e2e.yml` は PR と main への push で、macOS ランナー上で e2e を実行します。
+
+フルの Release ビルドは 25 分ほどかかります。そこで Expo の [repack](https://docs.expo.dev/build-reference/repack/)（`@expo/repack-app`）を使い、ネイティブ側が変わっていなければビルド済みの `.app` の **JS バンドルだけを差し替え**ます。
+
+### 流れ
+
+1. `pnpm install --frozen-lockfile`（pnpm は `package.json` の `packageManager` のバージョン）
+2. **fingerprint を計算**：`pnpm exec fingerprint fingerprint:generate --platform ios`
+   - ネイティブの依存関係、config plugin、アプリ設定（`app.json`）などから作るハッシュです。
+3. その fingerprint をキーに、ベースの `.app` を `actions/cache` から復元
+   - **キャッシュなし**（初回・ネイティブ変更あり）：`expo run:ios --configuration Release` でフルビルドし、`.app` をキャッシュに保存
+   - **キャッシュあり**（JS だけの変更）：`pnpm exec repack-app --platform ios --source-app build/base/app.app --output build/ios/app.app --js-bundle-only`
+4. iPhone 17 Pro シミュレーターを起動してアプリをインストールし、UDID を `E2E_DEVICE` に設定
+5. `pnpm exec e2e run --target ios --workers 1 --reporter list,junit`
+6. `.e2e/report.json`・`junit.xml`・`results/` をアーティファクトとしてアップロード
+
+### ポイント
+
+- **ネイティブを変えるとフルビルドになります**：ネイティブモジュールの追加、config plugin や `app.json` の変更、Expo SDK の更新などです。fingerprint が変わるので、自動でフルビルドに切り替わります。
+- repack はシミュレーター用 `.app` が対象なので署名は不要です。pnpm でもそのまま動きます（`@expo/repack-app` はプロジェクトの `node_modules` にある Expo を使います）。
+- CI では `CI=true` になるため、`e2e.config.ts` は Metro（`app.command`）を起動しません。Release ビルドは JS を内蔵しています。
+- CI の新しいマシンでは、iOS のテスト用ランナーを最初からビルドするのに約 4 分かかります。そのため `launchTimeout` を CI だけ 5 分にしています。ランナーはテストが失敗してもキャッシュに保存するので、次回からは速くなります。
+- 同じことをローカルで試す場合：
+
+  ```bash
+  pnpm exec expo run:ios --configuration Release --device generic --no-bundler --output build/out
+  # build/out の .app を build/base/app.app にコピーしてから
+  pnpm exec repack-app --platform ios --source-app build/base/app.app --output build/ios/app.app --js-bundle-only
+  ```
+
 ## 補足: ロックファイル
 
 `pnpm-lock.yaml` と `package.json` がずれないよう、依存を変えたら `pnpm install` してロックファイルもコミットしてください。`.mcp.json` の e2e MCP サーバーは `pnpm exec e2e mcp` で起動します。
@@ -175,4 +208,5 @@ export default {
 | 全テスト実行 | `pnpm test:e2e` |
 | シミュレーターを表示して実行 | `pnpm exec e2e run --headed` |
 | シミュレーター一覧 | `xcrun simctl list devices` |
+| fingerprint の確認 | `pnpm exec fingerprint fingerprint:generate --platform ios` |
 | テレメトリー無効化 | `pnpm exec e2e telemetry disable` |
