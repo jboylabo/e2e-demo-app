@@ -8,7 +8,8 @@
     "scheme": "e2edemoapp",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/expo.icon",
+      "bundleIdentifier": "com.jboy422san.e2e-demo-app"
     },
     "android": {
       "adaptiveIcon": {
